@@ -14,13 +14,13 @@
   <script defer src="https://cdn.jsdelivr.net/npm/docx@9.0.3/build/index.umd.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script defer src="./app.v7.js" type="module"></script>
+  <script defer src="./app.v8.js" type="module"></script>
 </head>
 <body>
   <div class="app-shell">
     <header class="hero">
       <div>
-        <p class="eyebrow">GitHub Pages / Browser-only · Version v7</p>
+        <p class="eyebrow">GitHub Pages / Browser-only · Version v8</p>
         <h1>EUAA Monitoring Anonymiser</h1>
         <p class="subtitle">
           Upload folders with Word, PDF, text, or Excel files and process them entirely inside the browser.
@@ -72,6 +72,7 @@
             PDF handling
             <select id="pdfModeSelect">
               <option value="rebuild">Anonymise and rebuild output</option>
+              <option value="preserve">Preserve original PDF layout and replace text</option>
               <option value="blackout">Redact original PDF with black bars</option>
             </select>
           </label>
@@ -79,7 +80,7 @@
 
         <div class="inline-options">
           <label class="tick inline-tick"><input id="ocrFallback" type="checkbox" checked /> OCR fallback for scanned PDFs</label>
-          <span class="note small">Recommended when PDFs contain images rather than selectable text. OCR runs locally in the browser and may take longer. Invalid or corrupted PDF uploads now show clearer validation errors. Version v7 also tolerates some PDFs that contain unexpected bytes before the %PDF header. If you see Version v7 at the top, you are on the latest build.</span>
+          <span class="note small">Recommended when PDFs contain images rather than selectable text. OCR runs locally in the browser and may take longer. Invalid or corrupted PDF uploads now show clearer validation errors. Version v8 also tolerates some PDFs that contain unexpected bytes before the %PDF header and adds a preserve-layout PDF mode. If you see Version v8 at the top, you are on the latest build.</span>
         </div>
 
         <div class="sub-panel">
@@ -116,7 +117,7 @@
           <button id="downloadAllBtn" class="secondary" type="button" disabled>Download ZIP</button>
         </div>
         <p class="note">
-          Supported: DOCX, PDF, TXT, XLSX. The black-bar PDF mode works best for text-searchable PDFs; OCR fallback also helps scanned PDFs but may be slower.
+          Supported: DOCX, PDF, TXT, XLSX. PDFs now support rebuild, preserve-layout replacement, and black-bar redaction. OCR fallback also helps scanned PDFs but may be slower.
         </p>
       </section>
 
