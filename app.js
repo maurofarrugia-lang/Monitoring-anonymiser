@@ -11,6 +11,7 @@ const folderInput = document.getElementById('folderInput');
 const dropZone = document.getElementById('dropZone');
 const levelSelect = document.getElementById('levelSelect');
 const pdfModeSelect = document.getElementById('pdfModeSelect');
+const ocrFallback = document.getElementById('ocrFallback');
 const personPrefixInput = document.getElementById('personPrefix');
 const processBtn = document.getElementById('processBtn');
 const clearBtn = document.getElementById('clearBtn');
@@ -52,7 +53,6 @@ const countries = [
   'Greece', 'Hungary', 'Iraq', 'Italy', 'Jordan', 'Lebanon', 'Libya', 'Malta', 'Morocco', 'Netherlands',
   'Pakistan', 'Poland', 'Romania', 'Spain', 'Syria', 'Turkey', 'Ukraine'
 ];
-
 const familyTerms = ['wife', 'husband', 'daughter', 'son', 'children', 'child', 'mother', 'father', 'brother', 'sister'];
 const monthPattern = 'January|February|March|April|May|June|July|August|September|October|November|December';
 const supportedExtensions = new Set(['docx', 'pdf', 'txt', 'xlsx']);
@@ -72,6 +72,15 @@ function alpha(n) {
     n = Math.floor((n - 1) / 26);
   }
   return result;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }
 
 function clearObjectUrls() {
@@ -214,7 +223,6 @@ function detectEntities(text, level, activeCategories = selectedCategories()) {
       entities.push({ category, text: match[0], start: match.index, end: match.index + match[0].length });
     }
   }
-
   if (activeCategories.has('COUNTRY')) {
     for (const country of countries) {
       const re = new RegExp(`\\b${country.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g');
@@ -223,7 +231,6 @@ function detectEntities(text, level, activeCategories = selectedCategories()) {
       }
     }
   }
-
   if (level !== 'light' && activeCategories.has('LOCATION')) {
     const locationRe = /\b(?:in|at|from|to|arrived in)\s+([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,}){0,2})\b/g;
     for (const match of text.matchAll(locationRe)) {
@@ -233,7 +240,6 @@ function detectEntities(text, level, activeCategories = selectedCategories()) {
       }
     }
   }
-
   if (level !== 'light' && activeCategories.has('FAMILY_TERM')) {
     const familyRe = new RegExp(`\\b(?:${familyTerms.join('|')})\\b`, 'gi');
     for (const match of text.matchAll(familyRe)) {
@@ -256,7 +262,6 @@ function anonymizeText(text, level, activeCategories = selectedCategories()) {
   const entities = detectEntities(text, level, activeCategories);
   let out = text;
   const replacements = [];
-
   for (const entity of [...entities].sort((a, b) => b.start - a.start)) {
     let replacement;
     if (entity.category === 'DATE_EXACT') {
@@ -279,13 +284,58 @@ function anonymizeText(text, level, activeCategories = selectedCategories()) {
     out = `${out.slice(0, entity.start)}${replacement}${out.slice(entity.end)}`;
     replacements.push({ ...entity, replacement });
   }
-
   if (level === 'demo-safe' && activeCategories.has('FAMILY_TERM')) {
     out = out.replace(/\b\d+\s+children\b/gi, 'family members');
     out = out.replace(/\b\d{1,2}\s+years? old\b/gi, 'young person');
   }
-
   return { text: out, replacements: replacements.reverse() };
+}
+
+function hasMeaningfulText(text, fileName = '') {
+  const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+  if (normalized.length < 25) return false;
+  const stem = fileName.replace(/\.[^.]+$/, '').replace(/[_-]/g, ' ').trim();
+  if (stem && normalized.toLowerCase() === stem.toLowerCase()) return false;
+  if (/^.+\(anonymised\)$/i.test(normalized)) return false;
+  return true;
+}
+
+async function renderPdfPageToCanvas(page, scale = 2) {
+  const viewport = page.getViewport({ scale });
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  canvas.width = Math.ceil(viewport.width);
+  canvas.height = Math.ceil(viewport.height);
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  return { canvas, viewport };
+}
+
+async function runOcrOnCanvas(canvas, pageLabel) {
+  if (!window.Tesseract) throw new Error('OCR library failed to load');
+  setStatus(`Running OCR on ${pageLabel}...`, 'info');
+  const result = await window.Tesseract.recognize(canvas, 'eng');
+  return result.data;
+}
+
+async function extractPdfText(file, allowOcr = false) {
+  const buffer = await file.arrayBuffer();
+  const sourceBytes = new Uint8Array(buffer);
+  const pdf = await pdfjsLib.getDocument({ data: sourceBytes }).promise;
+  const pages = [];
+  let usedOcr = false;
+  for (let i = 1; i <= pdf.numPages; i += 1) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    let text = content.items.map(item => item.str).join(' ').trim();
+    if (!hasMeaningfulText(text, file.name) && allowOcr) {
+      const { canvas } = await renderPdfPageToCanvas(page);
+      const ocr = await runOcrOnCanvas(canvas, `page ${i}`);
+      text = (ocr.text || '').trim();
+      usedOcr = true;
+    }
+    pages.push(text);
+  }
+  return { text: pages.join('\n\n'), pdf, sourceBytes, usedOcr };
 }
 
 function blobUrl(blob) {
@@ -329,32 +379,13 @@ function textToPdfBlob(title, text) {
   return pdf.output('blob');
 }
 
-async function extractPdfText(file) {
-  const buffer = await file.arrayBuffer();
-  const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
-  const pages = [];
-  for (let i = 1; i <= pdf.numPages; i += 1) {
-    const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    const items = content.items.map(item => item.str).join(' ');
-    pages.push(items);
-  }
-  return pages.join('\n\n');
-}
-
-async function extractDocxText(file) {
-  const buffer = await file.arrayBuffer();
-  const result = await window.mammoth.extractRawText({ arrayBuffer: buffer });
-  return result.value || '';
-}
-
-async function buildTextOutputs(relativePath, text, replacements, formats) {
+async function buildTextOutputs(relativePath, text, replacements, formats, modeLabel = 'anonymised-text') {
   const baseName = relativePath.replace(/\.[^.]+$/, '');
   const downloads = [];
   if (formats.includes('txt')) downloads.push(makeDownload(`${baseName}_anonymised.txt`, new Blob([text], { type: 'text/plain;charset=utf-8' })));
   if (formats.includes('docx')) downloads.push(makeDownload(`${baseName}_anonymised.docx`, await textToDocxBlob(`${relativePath} (anonymised)`, text)));
   if (formats.includes('pdf')) downloads.push(makeDownload(`${baseName}_anonymised.pdf`, textToPdfBlob(`${relativePath} (anonymised)`, text)));
-  return { sourceName: relativePath, previewText: text, replacements, downloads, mode: 'anonymised-text' };
+  return { sourceName: relativePath, previewText: text, replacements, downloads, mode: modeLabel };
 }
 
 async function processTxtFile(file, relativePath, level, activeCategories) {
@@ -364,7 +395,9 @@ async function processTxtFile(file, relativePath, level, activeCategories) {
 }
 
 async function processDocxFile(file, relativePath, level, activeCategories) {
-  const raw = await extractDocxText(file);
+  const buffer = await file.arrayBuffer();
+  const result = await window.mammoth.extractRawText({ arrayBuffer: buffer });
+  const raw = result.value || '';
   const anonymized = anonymizeText(raw, level, activeCategories);
   return buildTextOutputs(relativePath, anonymized.text, anonymized.replacements, ['txt', 'docx', 'pdf']);
 }
@@ -376,39 +409,31 @@ async function processPdfBlackout(file, relativePath, level, activeCategories) {
   const pdfLibDoc = await PDFDocument.load(sourceBytes);
   const allReplacements = [];
   const previewPages = [];
+  const allowOcr = ocrFallback.checked;
 
   for (let pageIndex = 0; pageIndex < pdfjsDoc.numPages; pageIndex += 1) {
-    const page = await pdfjsDoc.getPage(pageIndex + 1);
-    const viewport = page.getViewport({ scale: 1.0 });
+    const pageNumber = pageIndex + 1;
+    const page = await pdfjsDoc.getPage(pageNumber);
+    const viewport = page.getViewport({ scale: 1 });
     const content = await page.getTextContent();
     const pdfLibPage = pdfLibDoc.getPage(pageIndex);
-
     const pagePreview = [];
+    let pageHadMatches = false;
+
     for (const item of content.items) {
-      const str = item.str || '';
-      if (!str.trim()) continue;
+      const str = (item.str || '').trim();
+      if (!str) continue;
       pagePreview.push(str);
       const entities = detectEntities(str, level, activeCategories);
       if (!entities.length) continue;
-
+      pageHadMatches = true;
       const transform = pdfjsLib.Util.transform(viewport.transform, item.transform);
       const x = transform[4];
       const yTop = transform[5];
       const height = Math.max(item.height || Math.abs(transform[3]) || 8, 8);
       const width = Math.max(item.width || (str.length * 5), 8);
       const y = viewport.height - yTop - height;
-
-      pdfLibPage.drawRectangle({
-        x,
-        y,
-        width,
-        height,
-        color: rgb(0, 0, 0),
-        borderColor: rgb(0, 0, 0),
-        borderWidth: 0,
-        opacity: 1,
-      });
-
+      pdfLibPage.drawRectangle({ x, y, width, height, color: rgb(0, 0, 0), borderColor: rgb(0, 0, 0), borderWidth: 0, opacity: 1 });
       for (const entity of entities) {
         allReplacements.push({ ...entity, replacement: 'BLACK BAR REDACTION' });
         const key = `${entity.category}::${entity.text.trim()}`.toLowerCase();
@@ -418,6 +443,38 @@ async function processPdfBlackout(file, relativePath, level, activeCategories) {
         }
       }
     }
+
+    if (!pageHadMatches && allowOcr && (!content.items.length || !hasMeaningfulText(pagePreview.join(' '), file.name))) {
+      const { canvas } = await renderPdfPageToCanvas(page);
+      const ocr = await runOcrOnCanvas(canvas, `PDF page ${pageNumber}`);
+      previewPages.push((ocr.text || '').trim());
+      const pageWidth = pdfLibPage.getWidth();
+      const pageHeight = pdfLibPage.getHeight();
+      const scaleX = pageWidth / canvas.width;
+      const scaleY = pageHeight / canvas.height;
+      for (const line of ocr.lines || []) {
+        const lineText = (line.text || '').trim();
+        if (!lineText) continue;
+        const entities = detectEntities(lineText, level, activeCategories);
+        if (!entities.length) continue;
+        const box = line.bbox || {};
+        const x = (box.x0 || 0) * scaleX;
+        const y = pageHeight - ((box.y1 || 0) * scaleY);
+        const width = Math.max(((box.x1 || 0) - (box.x0 || 0)) * scaleX, 8);
+        const height = Math.max(((box.y1 || 0) - (box.y0 || 0)) * scaleY, 8);
+        pdfLibPage.drawRectangle({ x, y, width, height, color: rgb(0, 0, 0), borderColor: rgb(0, 0, 0), borderWidth: 0, opacity: 1 });
+        for (const entity of entities) {
+          allReplacements.push({ ...entity, replacement: 'BLACK BAR REDACTION (OCR)' });
+          const key = `${entity.category}::${entity.text.trim()}`.toLowerCase();
+          if (!state.entityMap.has(key)) {
+            state.entityMap.set(key, { category: entity.category, original: entity.text.trim(), replacement: 'BLACK BAR REDACTION (OCR)' });
+            updateCategoryCount(entity.category);
+          }
+        }
+      }
+      continue;
+    }
+
     previewPages.push(pagePreview.join(' '));
   }
 
@@ -436,9 +493,13 @@ async function processPdfFile(file, relativePath, level, activeCategories) {
   if (pdfModeSelect.value === 'blackout') {
     return processPdfBlackout(file, relativePath, level, activeCategories);
   }
-  const raw = await extractPdfText(file);
-  const anonymized = anonymizeText(raw, level, activeCategories);
-  return buildTextOutputs(relativePath, anonymized.text, anonymized.replacements, ['txt', 'docx', 'pdf']);
+  const extracted = await extractPdfText(file, ocrFallback.checked);
+  if (!hasMeaningfulText(extracted.text, file.name)) {
+    throw new Error('No readable PDF text was found. Try enabling OCR fallback or use PDF black-bar redaction mode.');
+  }
+  const anonymized = anonymizeText(extracted.text, level, activeCategories);
+  const modeLabel = extracted.usedOcr ? 'anonymised-text-ocr' : 'anonymised-text';
+  return buildTextOutputs(relativePath, anonymized.text, anonymized.replacements, ['txt', 'docx', 'pdf'], modeLabel);
 }
 
 async function processXlsxFile(file, relativePath, level, activeCategories) {
@@ -446,7 +507,6 @@ async function processXlsxFile(file, relativePath, level, activeCategories) {
   const workbook = window.XLSX.read(buffer, { type: 'array' });
   const previewLines = [];
   const replacements = [];
-
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
     const range = window.XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
@@ -469,7 +529,6 @@ async function processXlsxFile(file, relativePath, level, activeCategories) {
       if (rendered.length) previewLines.push(rendered.join(' | '));
     }
   }
-
   const xlsxArray = window.XLSX.write(workbook, { type: 'array', bookType: 'xlsx' });
   const xlsxBlob = new Blob([xlsxArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const previewText = previewLines.join('\n');
@@ -477,7 +536,6 @@ async function processXlsxFile(file, relativePath, level, activeCategories) {
   const docxBlob = await textToDocxBlob(`${relativePath} (anonymised)`, previewText);
   const pdfBlob = textToPdfBlob(`${relativePath} (anonymised)`, previewText);
   const txtBlob = new Blob([previewText], { type: 'text/plain;charset=utf-8' });
-
   return {
     sourceName: relativePath,
     previewText,
@@ -513,7 +571,10 @@ function renderResults() {
     const card = document.createElement('article');
     card.className = 'result-card';
     const links = result.downloads.map(item => `<a href="${item.url}" download="${escapeHtml(item.filename)}">${escapeHtml(item.filename)}</a>`).join('');
-    const modeText = result.mode === 'pdf-blackout' ? 'Original PDF with black-bar redactions' : 'Anonymised content export';
+    let modeText = 'Anonymised content export';
+    if (result.mode === 'pdf-blackout') modeText = 'Original PDF with black-bar redactions';
+    if (result.mode === 'anonymised-text-ocr') modeText = 'Anonymised content export using OCR';
+    if (result.mode === 'error') modeText = 'Processing error';
     card.innerHTML = `
       <div class="result-head">
         <div>
@@ -549,15 +610,6 @@ function renderStats() {
   }
 }
 
-function escapeHtml(value) {
-  return String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
-
 function addFiles(files) {
   const seen = new Set(state.files.map(file => file.relativePath));
   for (const file of files) {
@@ -565,13 +617,7 @@ function addFiles(files) {
     const extension = (name.split('.').pop() || '').toLowerCase();
     if (!supportedExtensions.has(extension)) continue;
     if (seen.has(name)) continue;
-    state.files.push({
-      file,
-      size: file.size,
-      type: file.type,
-      relativePath: name,
-      extension,
-    });
+    state.files.push({ file, size: file.size, type: file.type, relativePath: name, extension });
     seen.add(name);
   }
   renderFileList();
@@ -580,16 +626,11 @@ function addFiles(files) {
 
 async function processOne(entry, level, activeCategories) {
   switch (entry.extension) {
-    case 'txt':
-      return processTxtFile(entry.file, entry.relativePath, level, activeCategories);
-    case 'docx':
-      return processDocxFile(entry.file, entry.relativePath, level, activeCategories);
-    case 'pdf':
-      return processPdfFile(entry.file, entry.relativePath, level, activeCategories);
-    case 'xlsx':
-      return processXlsxFile(entry.file, entry.relativePath, level, activeCategories);
-    default:
-      return null;
+    case 'txt': return processTxtFile(entry.file, entry.relativePath, level, activeCategories);
+    case 'docx': return processDocxFile(entry.file, entry.relativePath, level, activeCategories);
+    case 'pdf': return processPdfFile(entry.file, entry.relativePath, level, activeCategories);
+    case 'xlsx': return processXlsxFile(entry.file, entry.relativePath, level, activeCategories);
+    default: return null;
   }
 }
 
@@ -603,7 +644,6 @@ async function processAll() {
     setStatus('Select at least one anonymisation category.', 'warn');
     return;
   }
-
   clearObjectUrls();
   state.results = [];
   state.entityMap = new Map();
@@ -612,10 +652,8 @@ async function processAll() {
   renderMappingTable();
   renderStats();
   downloadAllBtn.disabled = true;
-
   const level = levelSelect.value;
   setStatus(`Processing ${state.files.length} file(s) in ${level} mode...`, 'info');
-
   for (let i = 0; i < state.files.length; i += 1) {
     const entry = state.files[i];
     setStatus(`Processing ${i + 1}/${state.files.length}: ${entry.relativePath}`, 'info');
@@ -624,19 +662,12 @@ async function processAll() {
       if (result) state.results.push(result);
     } catch (error) {
       console.error(error);
-      state.results.push({
-        sourceName: entry.relativePath,
-        previewText: `Error while processing file: ${error.message}`,
-        replacements: [],
-        downloads: [],
-        mode: 'error',
-      });
+      state.results.push({ sourceName: entry.relativePath, previewText: `Error while processing file: ${error.message}`, replacements: [], downloads: [], mode: 'error' });
     }
     renderResults();
     renderMappingTable();
     renderStats();
   }
-
   downloadAllBtn.disabled = state.results.every(result => result.downloads.length === 0);
   setStatus(`Finished. ${state.results.length} file(s) processed locally in your browser.`, 'success');
 }
@@ -645,13 +676,9 @@ async function downloadAll() {
   if (!state.results.length) return;
   const zip = new window.JSZip();
   for (const result of state.results) {
-    for (const asset of result.downloads) {
-      zip.file(asset.filename, asset.blob);
-    }
+    for (const asset of result.downloads) zip.file(asset.filename, asset.blob);
   }
-  const summary = [...state.entityMap.values()]
-    .map(item => `${item.category}\t${item.original}\t${item.replacement}`)
-    .join('\n');
+  const summary = [...state.entityMap.values()].map(item => `${item.category}\t${item.original}\t${item.replacement}`).join('\n');
   zip.file('replacement-map.tsv', summary || 'No replacements recorded');
   const blob = await zip.generateAsync({ type: 'blob' });
   const url = blobUrl(blob);
@@ -669,7 +696,6 @@ function handleFileInput(event) {
 async function readEntriesFromDrop(items) {
   if (!items || !items.length || !items[0].webkitGetAsEntry) return [];
   const files = [];
-
   async function walk(entry, prefix = '') {
     if (entry.isFile) {
       await new Promise(resolve => entry.file(file => {
@@ -679,14 +705,12 @@ async function readEntriesFromDrop(items) {
       }));
       return;
     }
-
     if (entry.isDirectory) {
       const reader = entry.createReader();
       const entries = await new Promise(resolve => reader.readEntries(resolve));
       for (const child of entries) await walk(child, `${prefix}${entry.name}/`);
     }
   }
-
   for (const item of items) {
     const entry = item.webkitGetAsEntry();
     if (entry) await walk(entry);
@@ -702,15 +726,8 @@ downloadAllBtn.addEventListener('click', downloadAll);
 presetDirectBtn.addEventListener('click', () => applyPreset(directPreset));
 presetRecommendedBtn.addEventListener('click', () => applyPreset(recommendedPreset));
 presetAllBtn.addEventListener('click', () => applyPreset(entityToggles.map(toggle => toggle.value)));
-
-['dragenter', 'dragover'].forEach(evt => dropZone.addEventListener(evt, e => {
-  e.preventDefault();
-  dropZone.classList.add('dragover');
-}));
-['dragleave', 'drop'].forEach(evt => dropZone.addEventListener(evt, e => {
-  e.preventDefault();
-  dropZone.classList.remove('dragover');
-}));
+['dragenter', 'dragover'].forEach(evt => dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.classList.add('dragover'); }));
+['dragleave', 'drop'].forEach(evt => dropZone.addEventListener(evt, e => { e.preventDefault(); dropZone.classList.remove('dragover'); }));
 dropZone.addEventListener('drop', async e => {
   const entryFiles = await readEntriesFromDrop(e.dataTransfer.items);
   const files = entryFiles.length ? entryFiles : [...e.dataTransfer.files];

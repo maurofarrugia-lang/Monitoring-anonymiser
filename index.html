@@ -13,6 +13,7 @@
   <script defer src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/docx@9.0.3/build/index.umd.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script defer src="./app.js" type="module"></script>
 </head>
 <body>
@@ -32,7 +33,7 @@
           <li>Client-side processing only</li>
           <li>No uploads to a custom backend</li>
           <li>Session data stays in browser memory</li>
-          <li>PDF option for black-line redaction without rebuilding the document layout</li>
+          <li>Optional OCR fallback for scanned PDFs</li>
         </ul>
       </div>
     </header>
@@ -76,6 +77,11 @@
           </label>
         </div>
 
+        <div class="inline-options">
+          <label class="tick inline-tick"><input id="ocrFallback" type="checkbox" checked /> OCR fallback for scanned PDFs</label>
+          <span class="note small">Recommended when PDFs contain images rather than selectable text. OCR runs locally in the browser and may take longer.</span>
+        </div>
+
         <div class="sub-panel">
           <div class="section-head compact">
             <h3>2. What to anonymise</h3>
@@ -94,7 +100,7 @@
             <label class="tick"><input class="entity-toggle" type="checkbox" value="PHONE" checked /> Phones</label>
             <label class="tick"><input class="entity-toggle" type="checkbox" value="DATE_EXACT" checked /> Exact dates</label>
             <label class="tick"><input class="entity-toggle" type="checkbox" value="COUNTRY" checked /> Countries</label>
-            <label class="tick"><input class="entity-toggle" type="checkbox" value="LOCATION" checked /> Locations</label>
+            <label class="entity-toggle tick"><input class="entity-toggle" type="checkbox" value="LOCATION" checked /> Locations</label>
             <label class="tick"><input class="entity-toggle" type="checkbox" value="FACILITY" checked /> Facilities</label>
             <label class="tick"><input class="entity-toggle" type="checkbox" value="ROUTE" checked /> Routes</label>
             <label class="tick"><input class="entity-toggle" type="checkbox" value="FAMILY_TERM" checked /> Family details</label>
@@ -110,7 +116,7 @@
           <button id="downloadAllBtn" class="secondary" type="button" disabled>Download ZIP</button>
         </div>
         <p class="note">
-          Supported: DOCX, PDF, TXT, XLSX. The black-bar PDF mode works best for text-searchable PDFs. Scanned PDFs are not OCR processed in this browser-only version.
+          Supported: DOCX, PDF, TXT, XLSX. The black-bar PDF mode works best for text-searchable PDFs; OCR fallback also helps scanned PDFs but may be slower.
         </p>
       </section>
 
@@ -134,6 +140,7 @@
             <span class="chip">Browser-only</span>
             <span class="chip">Consistent substitutions</span>
             <span class="chip">PDF black-bar option</span>
+            <span class="chip">OCR fallback</span>
           </div>
         </div>
         <div id="resultsContainer" class="results"></div>
