@@ -4,15 +4,15 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>EUAA Monitoring Anonymiser</title>
-  <meta name="description" content="Client-side anonymiser for DOCX, PDF, TXT and XLSX files. Runs entirely in the browser and can be deployed on GitHub Pages." />
+  <meta name="description" content="Client-side anonymiser and PDF black-bar redaction tool for DOCX, PDF, TXT and XLSX files. Runs entirely in the browser and can be deployed on GitHub Pages." />
   <link rel="stylesheet" href="./style.css" />
   <link rel="icon" href="data:," />
   <script defer src="https://cdn.jsdelivr.net/npm/mammoth@1.8.0/mammoth.browser.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.min.mjs" type="module"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/docx@9.0.3/build/index.umd.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
   <script defer src="./app.js" type="module"></script>
 </head>
 <body>
@@ -22,8 +22,8 @@
         <p class="eyebrow">GitHub Pages / Browser-only</p>
         <h1>EUAA Monitoring Anonymiser</h1>
         <p class="subtitle">
-          Upload folders with Word, PDF, text, or Excel files and anonymise them entirely inside the browser.
-          No file content is sent to a backend server by this app.
+          Upload folders with Word, PDF, text, or Excel files and process them entirely inside the browser.
+          Use either structured anonymisation or PDF black-bar redaction while keeping the original PDF layout.
         </p>
       </div>
       <div class="hero-card">
@@ -32,7 +32,7 @@
           <li>Client-side processing only</li>
           <li>No uploads to a custom backend</li>
           <li>Session data stays in browser memory</li>
-          <li>Download anonymised DOCX, PDF, TXT, and XLSX outputs</li>
+          <li>PDF option for black-line redaction without rebuilding the document layout</li>
         </ul>
       </div>
     </header>
@@ -53,9 +53,10 @@
         <div id="dropZone" class="drop-zone">
           Drag and drop files or a folder here
         </div>
-        <div class="controls">
+
+        <div class="controls controls-3">
           <label>
-            Anonymisation level
+            Processing level
             <select id="levelSelect">
               <option value="light">Light</option>
               <option value="standard">Standard</option>
@@ -63,22 +64,58 @@
             </select>
           </label>
           <label>
-            Placeholder prefix for people
+            People placeholder prefix
             <input id="personPrefix" type="text" value="Applicant" maxlength="20" />
           </label>
+          <label>
+            PDF handling
+            <select id="pdfModeSelect">
+              <option value="rebuild">Anonymise and rebuild output</option>
+              <option value="blackout">Redact original PDF with black bars</option>
+            </select>
+          </label>
         </div>
+
+        <div class="sub-panel">
+          <div class="section-head compact">
+            <h3>2. What to anonymise</h3>
+            <div class="actions compact-actions">
+              <button id="presetDirectBtn" class="secondary" type="button">Direct IDs only</button>
+              <button id="presetRecommendedBtn" class="secondary" type="button">Recommended</button>
+              <button id="presetAllBtn" class="secondary" type="button">Select all</button>
+            </div>
+          </div>
+          <div class="option-grid">
+            <label class="tick"><input class="entity-toggle" type="checkbox" value="PERSON" checked /> Names</label>
+            <label class="tick"><input class="entity-toggle" type="checkbox" value="CASE_ID" checked /> Case numbers</label>
+            <label class="tick"><input class="entity-toggle" type="checkbox" value="PASSPORT_OR_ID" checked /> IDs / passports</label>
+            <label class="tick"><input class="entity-toggle" type="checkbox" value="ADDRESS" checked /> Addresses</label>
+            <label class="tick"><input class="entity-toggle" type="checkbox" value="EMAIL" checked /> Emails</label>
+            <label class="tick"><input class="entity-toggle" type="checkbox" value="PHONE" checked /> Phones</label>
+            <label class="tick"><input class="entity-toggle" type="checkbox" value="DATE_EXACT" checked /> Exact dates</label>
+            <label class="tick"><input class="entity-toggle" type="checkbox" value="COUNTRY" checked /> Countries</label>
+            <label class="tick"><input class="entity-toggle" type="checkbox" value="LOCATION" checked /> Locations</label>
+            <label class="tick"><input class="entity-toggle" type="checkbox" value="FACILITY" checked /> Facilities</label>
+            <label class="tick"><input class="entity-toggle" type="checkbox" value="ROUTE" checked /> Routes</label>
+            <label class="tick"><input class="entity-toggle" type="checkbox" value="FAMILY_TERM" checked /> Family details</label>
+          </div>
+          <p class="note small">
+            Recommended for EUAA monitoring demos: Names, case numbers, IDs, addresses, emails, phones, exact dates, locations, facilities, routes, family details, and countries.
+          </p>
+        </div>
+
         <div class="actions">
-          <button id="processBtn" class="primary">Process files</button>
-          <button id="clearBtn" class="secondary">Clear session</button>
-          <button id="downloadAllBtn" class="secondary" disabled>Download ZIP</button>
+          <button id="processBtn" class="primary" type="button">Process files</button>
+          <button id="clearBtn" class="secondary" type="button">Clear session</button>
+          <button id="downloadAllBtn" class="secondary" type="button" disabled>Download ZIP</button>
         </div>
         <p class="note">
-          Supported: DOCX, PDF, TXT, XLSX. PDF support works best for text-searchable PDFs. Scanned PDFs are not OCR'd in this browser-only version.
+          Supported: DOCX, PDF, TXT, XLSX. The black-bar PDF mode works best for text-searchable PDFs. Scanned PDFs are not OCR processed in this browser-only version.
         </p>
       </section>
 
       <section class="panel">
-        <h2>2. Session overview</h2>
+        <h2>3. Session overview</h2>
         <div id="statusBanner" class="status info">No files loaded yet.</div>
         <div id="summaryStats" class="stats"></div>
         <div class="list-wrap">
@@ -92,26 +129,26 @@
 
       <section class="panel wide">
         <div class="section-head">
-          <h2>3. Output preview</h2>
+          <h2>4. Output preview</h2>
           <div class="chip-row">
-            <span class="chip">In-browser only</span>
+            <span class="chip">Browser-only</span>
             <span class="chip">Consistent substitutions</span>
-            <span class="chip">Ready for GitHub Pages</span>
+            <span class="chip">PDF black-bar option</span>
           </div>
         </div>
         <div id="resultsContainer" class="results"></div>
       </section>
 
       <section class="panel wide">
-        <h2>4. Replacement map</h2>
-        <p class="note">This is generated per session and is not stored anywhere unless you export the output files yourself.</p>
+        <h2>5. Replacement map</h2>
+        <p class="note">This map is generated per session and stays only in browser memory unless you choose to download output files.</p>
         <div class="table-wrap">
           <table>
             <thead>
               <tr>
                 <th>Category</th>
                 <th>Original</th>
-                <th>Replacement</th>
+                <th>Replacement / Action</th>
               </tr>
             </thead>
             <tbody id="mappingTable"></tbody>
@@ -121,9 +158,7 @@
     </main>
 
     <footer class="footer">
-      <p>
-        This browser app is intended for demonstration-safe preparation of case materials. Always review output before external use.
-      </p>
+      <p>This browser app is intended for demonstration-safe preparation of case materials. Always review output before external use.</p>
     </footer>
   </div>
 </body>

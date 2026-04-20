@@ -2,29 +2,28 @@
 
 This package is a **static browser app** designed to work on **GitHub Pages**.
 
-## Why this fixes your blank GitHub Pages site
-Your earlier package used a Python/FastAPI backend. GitHub Pages can only host **static files** like HTML, CSS, and JavaScript, so the page appeared blank or empty.
-
-This package contains only static files:
-- `index.html`
-- `style.css`
-- `app.js`
-- `.nojekyll`
-
-That means it can run directly on GitHub Pages.
-
-## What it does
+## What it now includes
 - Upload files or folders in the browser
 - Process `.docx`, `.pdf`, `.txt`, `.xlsx`
 - Apply consistent anonymisation replacements
+- Choose exactly **what categories to anonymise**
+- Use a **Recommended** preset for EUAA monitoring demonstrations
+- Redact **PDFs with black bars** while keeping the original PDF layout where possible
 - Download anonymised outputs as DOCX, PDF, TXT, and XLSX where applicable
 - Export a ZIP of all generated files
 - Keep file contents in browser memory only
 
+## Key new PDF option
+For PDFs, you can now choose:
+- **Anonymise and rebuild output**
+- **Redact original PDF with black bars**
+
+The black-bar mode is intended for text-searchable PDFs and preserves the visual document much more closely by drawing black redaction bars over detected identifiable text.
+
 ## Important limitations
-- PDF support works best for text-searchable PDFs
+- PDF black-bar mode works best for text-searchable PDFs
 - Scanned PDFs are not OCR processed in this version
-- DOCX/PDF structure is simplified when regenerated client-side
+- DOCX/PDF structure is simplified when regenerated client-side in rebuild mode
 - This is a demo-safe browser app, not a certified legal anonymisation system
 
 ## How to deploy on GitHub Pages
@@ -49,9 +48,3 @@ python3 -m http.server 8080
 
 Then open:
 `http://127.0.0.1:8080`
-
-## Suggested next improvements
-- Add offline OCR for scanned PDFs
-- Add a manual entity review editor
-- Add exportable anonymisation audit report
-- Add multilingual entity dictionaries
