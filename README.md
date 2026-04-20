@@ -10,6 +10,7 @@ This package is a static browser app designed to work on GitHub Pages.
 - Use a Recommended preset for EUAA monitoring demonstrations
 - Redact PDFs with black bars while keeping the original PDF layout where possible
 - OCR fallback for scanned PDFs directly in the browser
+- PDF signature validation with clearer error messages for invalid or corrupted uploads
 - Download anonymised outputs as DOCX, PDF, TXT, and XLSX where applicable
 - Export a ZIP of all generated files
 - Keep file contents in browser memory only
@@ -24,6 +25,7 @@ The black-bar mode is intended to preserve the original PDF appearance. OCR fall
 ## Important limitations
 - OCR is slower because it runs locally in the browser
 - PDF black-bar mode is best-effort for scanned PDFs and strongest on text-searchable PDFs
+- OCR can help scanned PDFs, but it cannot repair a file that is not actually a valid PDF
 - DOCX/PDF structure is simplified when regenerated client-side in rebuild mode
 - This is a demo-safe browser app, not a certified legal redaction platform
 

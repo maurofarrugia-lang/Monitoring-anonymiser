@@ -300,6 +300,61 @@ function hasMeaningfulText(text, fileName = '') {
   return true;
 }
 
+function sniffPdfHeader(sourceBytes) {
+  const headerWindow = new TextDecoder('latin1').decode(sourceBytes.slice(0, 1024));
+  return {
+    startsWithPdf: sourceBytes.length >= 4 && sourceBytes[0] === 0x25 && sourceBytes[1] === 0x50 && sourceBytes[2] === 0x44 && sourceBytes[3] === 0x46,
+    hasPdfHeader: headerWindow.includes('%PDF-'),
+    looksLikeHtml: /^\s*</.test(headerWindow),
+    preview: headerWindow.slice(0, 120).replace(/\s+/g, ' ').trim(),
+  };
+}
+
+function validatePdfBytes(file, sourceBytes) {
+  if (!sourceBytes.length) {
+    throw new Error(`\"${file.name}\" is empty. Please upload the original PDF again.`);
+  }
+  const sniff = sniffPdfHeader(sourceBytes);
+  if (!sniff.hasPdfHeader) {
+    if (sniff.looksLikeHtml) {
+      throw new Error(`\"${file.name}\" is not a real PDF file. It looks like an HTML/download page instead of PDF bytes. Open the original document in a PDF viewer, save it as a real PDF, and upload that file.`);
+    }
+    throw new Error(`\"${file.name}\" is not a valid PDF file. No PDF header was found. This usually means the file is corrupted, incomplete, or not really a PDF. Open it in a PDF viewer and re-save it before upload.`);
+  }
+  return sniff;
+}
+
+function formatPdfParseError(file, error, sniff) {
+  const message = String(error?.message || error || 'Unknown PDF parsing error');
+  if (message.includes('No PDF header found')) {
+    return `\"${file.name}\" could not be read as a PDF. A PDF header was not found by the parser. Re-download or re-save the original file as PDF, then upload it again.`;
+  }
+  return `\"${file.name}\" could not be parsed as a PDF. ${message}. ${sniff?.hasPdfHeader ? 'A PDF header was detected, so the file may be damaged, encrypted, or saved in a format the browser parser cannot read.' : 'The file may not actually be a PDF.'}`;
+}
+
+async function readValidatedPdf(file) {
+  const buffer = await file.arrayBuffer();
+  const sourceBytes = new Uint8Array(buffer);
+  const sniff = validatePdfBytes(file, sourceBytes);
+  return { buffer, sourceBytes, sniff };
+}
+
+async function loadPdfJsDocument(file, sourceBytes, sniff) {
+  try {
+    return await pdfjsLib.getDocument({ data: sourceBytes }).promise;
+  } catch (error) {
+    throw new Error(formatPdfParseError(file, error, sniff));
+  }
+}
+
+async function loadPdfLibDocument(file, sourceBytes, sniff) {
+  try {
+    return await PDFDocument.load(sourceBytes);
+  } catch (error) {
+    throw new Error(formatPdfParseError(file, error, sniff));
+  }
+}
+
 async function renderPdfPageToCanvas(page, scale = 2) {
   const viewport = page.getViewport({ scale });
   const canvas = document.createElement('canvas');
@@ -318,9 +373,8 @@ async function runOcrOnCanvas(canvas, pageLabel) {
 }
 
 async function extractPdfText(file, allowOcr = false) {
-  const buffer = await file.arrayBuffer();
-  const sourceBytes = new Uint8Array(buffer);
-  const pdf = await pdfjsLib.getDocument({ data: sourceBytes }).promise;
+  const { sourceBytes, sniff } = await readValidatedPdf(file);
+  const pdf = await loadPdfJsDocument(file, sourceBytes, sniff);
   const pages = [];
   let usedOcr = false;
   for (let i = 1; i <= pdf.numPages; i += 1) {
@@ -335,7 +389,7 @@ async function extractPdfText(file, allowOcr = false) {
     }
     pages.push(text);
   }
-  return { text: pages.join('\n\n'), pdf, sourceBytes, usedOcr };
+  return { text: pages.join('\n\n'), pdf, sourceBytes, usedOcr, sniff };
 }
 
 function blobUrl(blob) {
@@ -403,10 +457,9 @@ async function processDocxFile(file, relativePath, level, activeCategories) {
 }
 
 async function processPdfBlackout(file, relativePath, level, activeCategories) {
-  const buffer = await file.arrayBuffer();
-  const sourceBytes = new Uint8Array(buffer);
-  const pdfjsDoc = await pdfjsLib.getDocument({ data: sourceBytes }).promise;
-  const pdfLibDoc = await PDFDocument.load(sourceBytes);
+  const { sourceBytes, sniff } = await readValidatedPdf(file);
+  const pdfjsDoc = await loadPdfJsDocument(file, sourceBytes, sniff);
+  const pdfLibDoc = await loadPdfLibDocument(file, sourceBytes, sniff);
   const allReplacements = [];
   const previewPages = [];
   const allowOcr = ocrFallback.checked;
@@ -495,7 +548,7 @@ async function processPdfFile(file, relativePath, level, activeCategories) {
   }
   const extracted = await extractPdfText(file, ocrFallback.checked);
   if (!hasMeaningfulText(extracted.text, file.name)) {
-    throw new Error('No readable PDF text was found. Try enabling OCR fallback or use PDF black-bar redaction mode.');
+    throw new Error(`\"${file.name}\" did not produce readable text. If this is a scanned PDF, keep OCR fallback enabled or switch to \"Redact original PDF with black bars\".`);
   }
   const anonymized = anonymizeText(extracted.text, level, activeCategories);
   const modeLabel = extracted.usedOcr ? 'anonymised-text-ocr' : 'anonymised-text';
@@ -662,7 +715,7 @@ async function processAll() {
       if (result) state.results.push(result);
     } catch (error) {
       console.error(error);
-      state.results.push({ sourceName: entry.relativePath, previewText: `Error while processing file: ${error.message}`, replacements: [], downloads: [], mode: 'error' });
+      state.results.push({ sourceName: entry.relativePath, previewText: `Error while processing file: ${error.message}\n\nTroubleshooting:\n- confirm the file opens in a normal PDF viewer\n- if it is scanned, keep OCR fallback enabled\n- if the file was downloaded from a website, re-save the real PDF and upload that copy`, replacements: [], downloads: [], mode: 'error' });
     }
     renderResults();
     renderMappingTable();
