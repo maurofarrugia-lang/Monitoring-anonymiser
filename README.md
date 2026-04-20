@@ -1,100 +1,57 @@
-# EUAA Case File Anonymiser
+# Monitoring-anonymiser GitHub Pages App
 
-A local-first FastAPI application for batch anonymising folders of case files containing **DOCX, PDF, TXT, and XLSX** materials.
+This package is a **static browser app** designed to work on **GitHub Pages**.
 
-## What this repository does
-- Upload a folder or multiple files from your own machine
-- Detect and replace direct identifiers such as names, case numbers, IDs, addresses, emails, and phone numbers
-- Generalise some indirect identifiers for demonstration-safe outputs
-- Preserve useful case-file structure where possible
-- Export anonymised outputs as **DOCX**, **PDF**, and **XLSX** where applicable
-- Generate a ZIP bundle for download
-- Keep all processing local to the machine running the app
+## Why this fixes your blank GitHub Pages site
+Your earlier package used a Python/FastAPI backend. GitHub Pages can only host **static files** like HTML, CSS, and JavaScript, so the page appeared blank or empty.
 
-## Important scope note
-This is an **offline/local MVP**, not a certified legal anonymisation platform. It is designed to help create demo-safe materials for review and demonstration workflows. Human review is still required before external use.
+This package contains only static files:
+- `index.html`
+- `style.css`
+- `app.js`
+- `.nojekyll`
 
-## Tech stack
-- FastAPI UI and local HTTP server
-- python-docx for Word handling
-- PyMuPDF for PDF text extraction and redaction overlays
-- openpyxl for Excel handling
-- reportlab for local PDF generation
-- optional Microsoft Presidio integration for extra entity detection
+That means it can run directly on GitHub Pages.
 
-## Quick start
+## What it does
+- Upload files or folders in the browser
+- Process `.docx`, `.pdf`, `.txt`, `.xlsx`
+- Apply consistent anonymisation replacements
+- Download anonymised outputs as DOCX, PDF, TXT, and XLSX where applicable
+- Export a ZIP of all generated files
+- Keep file contents in browser memory only
 
-### 1. Create a virtual environment
+## Important limitations
+- PDF support works best for text-searchable PDFs
+- Scanned PDFs are not OCR processed in this version
+- DOCX/PDF structure is simplified when regenerated client-side
+- This is a demo-safe browser app, not a certified legal anonymisation system
+
+## How to deploy on GitHub Pages
+1. Replace the files in your repository root with this package.
+2. Commit and push to GitHub.
+3. In GitHub repository settings, open **Pages**.
+4. Set source to:
+   - **Deploy from a branch**
+   - Branch: `main`
+   - Folder: `/ (root)`
+5. Save and wait for the Pages deployment.
+
+Your site should then load at:
+`https://YOUR-USERNAME.github.io/Monitoring-anonymiser/`
+
+## Local preview
+You can open `index.html` directly in a browser, or serve locally:
+
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+python3 -m http.server 8080
 ```
 
-### 2. Install dependencies
-```bash
-pip install -r requirements.txt
-```
-
-### 3. Run the app
-```bash
-uvicorn app.main:app --reload
-```
-
-Open `http://127.0.0.1:8000`
-
-## Docker run
-```bash
-docker compose up --build
-```
-
-## Supported inputs
-- `.docx`
-- `.pdf`
-- `.txt`
-- `.xlsx`
-
-## Privacy model
-- No external AI APIs are called
-- No remote storage is required
-- Temporary session files are created in the local temp directory only
-- Use the **Delete session data** button to wipe a session after download
-- Startup cleanup clears previous temp sessions
-
-## Recommended production hardening
-If you want to turn this into a real internal tool, add:
-- local authentication
-- stronger custom recognisers per country/language
-- better DOCX run-level preservation
-- OCR for scanned PDFs using an offline OCR engine
-- stricter secure-delete routines per OS
-- audit controls and manual review workflow
-
-## Project structure
-```text
-app/
-  anonymizer/
-  processors/
-  static/
-  templates/
-  utils/
-tests/
-```
-
-## Running tests
-```bash
-pytest
-```
-
-## Limitations
-- Scanned PDFs are not OCR'd in this MVP
-- PDF replacement relies on text-searchable PDFs
-- DOCX run formatting may be simplified when text is replaced
-- Excel formulas are preserved only when the cell begins with `=`
-- Entity recognition is rule-based first, Presidio-assisted when available
+Then open:
+`http://127.0.0.1:8080`
 
 ## Suggested next improvements
-1. Add user-editable substitution review before export
-2. Add multilingual recognisers
-3. Add offline OCR
-4. Wrap as a Tauri desktop app
-5. Add better redaction QA reports
+- Add offline OCR for scanned PDFs
+- Add a manual entity review editor
+- Add exportable anonymisation audit report
+- Add multilingual entity dictionaries
