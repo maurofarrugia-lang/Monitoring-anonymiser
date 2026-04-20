@@ -1,0 +1,82 @@
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+from app.anonymizer.detectors import DetectedEntity, OptionalPresidioDetector, RegexDetector
+from app.anonymizer.entity_map import SessionEntityMap
+
+
+@dataclass
+class AnonymizedResult:
+    anonymized_text: str
+    entities: list[dict]
+
+
+class AnonymisationService:
+    def __init__(self, level: str = "demo-safe") -> None:
+        self.level = level
+        self.entity_map = SessionEntityMap()
+        self.regex_detector = RegexDetector(level=level)
+        self.presidio_detector = OptionalPresidioDetector()
+
+    def anonymize_text(self, text: str) -> AnonymizedResult:
+        entities = self.regex_detector.detect(text)
+        presidio_entities = self.presidio_detector.detect(text)
+        merged = self._merge_entities(entities + presidio_entities)
+
+        replacements: list[dict] = []
+        out = text
+        for entity in sorted(merged, key=lambda e: e.start, reverse=True):
+            replacement = self._replacement_for(entity)
+            out = out[:entity.start] + replacement + out[entity.end:]
+            replacements.append(
+                {
+                    "type": entity.entity_type,
+                    "original": entity.text,
+                    "replacement": replacement,
+                    "score": entity.score,
+                }
+            )
+
+        if self.level == "demo-safe":
+            out = self._generalise_remaining_demo_risks(out)
+
+        replacements.reverse()
+        return AnonymizedResult(anonymized_text=out, entities=replacements)
+
+    def _replacement_for(self, entity: DetectedEntity) -> str:
+        category = entity.entity_type
+        original = entity.text.strip()
+        if category == "DATE_EXACT":
+            return self._generalise_date(original)
+        if category == "FAMILY_MEMBER":
+            return "family members"
+        return self.entity_map.placeholder_for(original, category)
+
+    def _generalise_date(self, text: str) -> str:
+        m = re.search(r"(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})", text)
+        if m:
+            return f"{m.group(1)} {m.group(2)}"
+        if re.match(r"\d{1,2}[/-]\d{1,2}[/-](\d{2,4})", text):
+            year = re.split(r"[/-]", text)[-1]
+            year = f"20{year}" if len(year) == 2 else year
+            return f"Year {year}"
+        return "Date Redacted"
+
+    def _merge_entities(self, entities: list[DetectedEntity]) -> list[DetectedEntity]:
+        entities = [e for e in entities if e.text and e.text.strip()]
+        entities.sort(key=lambda e: (e.start, -(e.end - e.start), -e.score))
+        merged: list[DetectedEntity] = []
+        last_end = -1
+        for entity in entities:
+            if entity.start < last_end:
+                continue
+            merged.append(entity)
+            last_end = entity.end
+        return merged
+
+    def _generalise_remaining_demo_risks(self, text: str) -> str:
+        text = re.sub(r"\b\d{1,2}\s+years? old\b", "young person", text, flags=re.IGNORECASE)
+        text = re.sub(r"\b(?:wife|husband|daughter|son|mother|father|brother|sister)\b", "family member", text, flags=re.IGNORECASE)
+        return text

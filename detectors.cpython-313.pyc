@@ -1,0 +1,101 @@
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from typing import Iterable, List
+
+
+@dataclass
+class DetectedEntity:
+    entity_type: str
+    start: int
+    end: int
+    text: str
+    score: float = 1.0
+
+
+MONTHS = r"January|February|March|April|May|June|July|August|September|October|November|December"
+
+
+class RegexDetector:
+    def __init__(self, level: str = "demo-safe") -> None:
+        self.level = level
+        self.patterns: list[tuple[str, re.Pattern[str]]] = [
+            ("EMAIL", re.compile(r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[A-Za-z]{2,}\b")),
+            ("PHONE", re.compile(r"\+?\d[\d\s().-]{7,}\d")),
+            ("CASE_ID", re.compile(r"\b(?:Case\s*(?:No\.?|Number)?\s*[:#-]?\s*)?[A-Z]{1,4}-?\d{2,4}-\d{2,6}\b")),
+            ("PASSPORT_OR_ID", re.compile(r"\b(?:ID|Passport|Document)\s*(?:No\.?|Number)?\s*[:#-]?\s*[A-Z0-9]{5,20}\b", re.IGNORECASE)),
+            ("ADDRESS", re.compile(r"\b\d{1,4}\s+[A-Z][A-Za-z0-9.'-]+(?:\s+[A-Z][A-Za-z0-9.'-]+){0,4}\s+(?:Street|St|Road|Rd|Avenue|Ave|Boulevard|Blvd|Lane|Ln|Way)\b")),
+            ("DATE_EXACT", re.compile(rf"\b\d{{1,2}}\s+(?:{MONTHS})\s+\d{{4}}\b")),
+            ("DATE_EXACT", re.compile(r"\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b")),
+            ("ROUTE", re.compile(r"\b(?:route\s+via\s+[A-Z][a-zA-Z-]+(?:\s*[–-]\s*[A-Z][a-zA-Z-]+)*)\b", re.IGNORECASE)),
+            ("FACILITY", re.compile(r"\b(?:Reception Centre|Closed Controlled Access Centre|CCAC|Camp|Facility)\s+[A-Z][\w-]+(?:\s+[A-Z][\w-]+)*\b")),
+            ("FAMILY_MEMBER", re.compile(r"\b(?:wife|husband|daughter|son|children|child|mother|father|brother|sister)\b", re.IGNORECASE)),
+            ("LOCATION", re.compile(r"\b(?:in|at|from|to|arrived in)\s+([A-Z][a-z]{2,}(?:\s+[A-Z][a-z]{2,}){0,2})\b")),
+            ("PERSON", re.compile(r"\b[A-Z][a-z]+\s+[A-Z][a-z]+\b")),
+        ]
+        self.countries = {
+            "Afghanistan", "Albania", "Algeria", "Belgium", "Bulgaria", "Croatia", "Cyprus", "Egypt",
+            "France", "Germany", "Greece", "Hungary", "Iraq", "Italy", "Jordan", "Lebanon", "Libya",
+            "Morocco", "Netherlands", "Pakistan", "Poland", "Romania", "Syria", "Turkey", "Ukraine"
+        }
+
+    def _country_entities(self, text: str) -> Iterable[DetectedEntity]:
+        for country in sorted(self.countries, key=len, reverse=True):
+            for match in re.finditer(rf"\b{re.escape(country)}\b", text):
+                yield DetectedEntity("COUNTRY", match.start(), match.end(), match.group(), 0.99)
+
+    def detect(self, text: str) -> List[DetectedEntity]:
+        entities: list[DetectedEntity] = []
+        for entity_type, pattern in self.patterns:
+            for match in pattern.finditer(text):
+                matched_text = match.group(1) if entity_type == "LOCATION" and match.lastindex else match.group()
+                start, end = (match.span(1) if entity_type == "LOCATION" and match.lastindex else match.span())
+                entities.append(DetectedEntity(entity_type, start, end, matched_text, 0.85))
+
+        entities.extend(self._country_entities(text))
+        if self.level in {"standard", "demo-safe"}:
+            for m in re.finditer(r"\b\d+\s+children\b", text, flags=re.IGNORECASE):
+                entities.append(DetectedEntity("FAMILY_MEMBER", m.start(), m.end(), m.group(), 0.9))
+        return self._dedupe(entities)
+
+    @staticmethod
+    def _dedupe(entities: list[DetectedEntity]) -> list[DetectedEntity]:
+        entities = sorted(entities, key=lambda e: (e.start, -(e.end - e.start)))
+        kept: list[DetectedEntity] = []
+        last_end = -1
+        for entity in entities:
+            if entity.start < last_end:
+                continue
+            kept.append(entity)
+            last_end = entity.end
+        return kept
+
+
+class OptionalPresidioDetector:
+    def __init__(self) -> None:
+        self.available = False
+        self.analyzer = None
+        try:
+            from presidio_analyzer import AnalyzerEngine  # type: ignore
+            self.analyzer = AnalyzerEngine()
+            self.available = True
+        except Exception:
+            self.available = False
+
+    def detect(self, text: str) -> List[DetectedEntity]:
+        if not self.available or not self.analyzer:
+            return []
+        results = self.analyzer.analyze(text=text, language="en")
+        entities: list[DetectedEntity] = []
+        for item in results:
+            entities.append(
+                DetectedEntity(
+                    entity_type=item.entity_type,
+                    start=item.start,
+                    end=item.end,
+                    text=text[item.start:item.end],
+                    score=float(item.score),
+                )
+            )
+        return entities
