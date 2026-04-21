@@ -14,13 +14,13 @@
   <script defer src="https://cdn.jsdelivr.net/npm/docx@9.0.3/build/index.umd.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script defer src="./app.v11.js" type="module"></script>
+  <script defer src="./app.v12.js" type="module"></script>
 </head>
 <body>
   <div class="app-shell">
     <header class="hero">
       <div>
-        <p class="eyebrow">GitHub Pages / Browser-only · Version v11</p>
+        <p class="eyebrow">GitHub Pages / Browser-only · Version v12</p>
         <h1>EUAA Monitoring Anonymiser</h1>
         <p class="subtitle">
           Upload folders with Word, PDF, text, or Excel files and process them entirely inside the browser.
@@ -80,7 +80,7 @@
 
         <div class="inline-options">
           <label class="tick inline-tick"><input id="ocrFallback" type="checkbox" checked /> OCR fallback for scanned PDFs</label>
-          <span class="note small">Recommended when PDFs contain images rather than selectable text. OCR runs locally in the browser and may take longer. Invalid or corrupted PDF uploads now show clearer validation errors. Version v11 also expands case-number detection to include IPAT, IPA, and Police numbers. If you see Version v11 at the top, you are on the latest build.</span>
+          <span class="note small">Recommended when PDFs contain images rather than selectable text. OCR runs locally in the browser and may take longer. Version v12 adds signature blackout cues in PDFs and asks for confirmation before redacting number series of 3 or more digits; once approved, identical numbers are auto-redacted in the same session. If you see Version v12 at the top, you are on the latest build.</span>
         </div>
 
         <div class="sub-panel">
@@ -117,7 +117,7 @@
           <button id="downloadAllBtn" class="secondary" type="button" disabled>Download ZIP</button>
         </div>
         <p class="note">
-          Supported: DOCX, PDF, TXT, XLSX. PDFs now support rebuild, preserve-layout replacement, and black-bar redaction. OCR fallback also helps scanned PDFs but may be slower.
+          Supported: DOCX, PDF, TXT, XLSX. PDFs now support rebuild, preserve-layout replacement, black-bar redaction, signature blackout cues, and approval-based number redaction. OCR fallback also helps scanned PDFs but may be slower.
         </p>
       </section>
 
